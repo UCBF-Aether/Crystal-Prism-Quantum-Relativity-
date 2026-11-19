@@ -3,7 +3,7 @@
 # same error model, same scoring. Crystal Prism Quantum Relativity vs
 # dark matter (NFW) vs MOND, at every knob count.
 #
-#   python3 sparc175_fair_run_2026-11-19.py
+#   python3 sparc175_fair_run_2026-11-19_galaxy.py
 #
 # Needs numpy and scipy, plus matplotlib for the real graphs (optional —
 # without it the script prints the ASCII graphs only and says so). It
@@ -62,9 +62,14 @@
 #       pinned at the -1.5 edge (row 583).
 # The 5% error cushion STAYS (row 583, finding c: removing it
 # HURTS, +0.16 pp SPARC / +0.49 pp PROBES). No fixed-point
-# iteration (row 583, finding b: not a fix). frozen_consts() is
-# untouched — the wiring question is deferred by Cory until the
-# turn-on is solved. No V3 p-form here: the stretched exponential
+# GALAXY-ONLY VERSION (2026-11-19, Cory-ordered): the E8 geometry
+# (frozen_consts) is REMOVED — this script is the galaxy side only.
+# Its two live outputs survive as plain literals below (rho_crit_gal
+# = 126.07441634091694 from H0 = 67.4 km/s/Mpc; a0_local =
+# 1.1375295473059159e-10 m/s^2): the derivation contributed nothing
+# to the CPQR numbers, and the scoreboard is bit-identical to the
+# 2026-11-19 script. The full E8-to-galaxies wiring lives in
+# sparc175_fair_run_2026-11-19_full.py.
 # is a 3-knob lead (row 584), not part of the fair run.
 
 import glob
@@ -74,7 +79,6 @@ import sys
 import time
 import urllib.request
 import zipfile
-from itertools import combinations
 
 import numpy as np
 from scipy.optimize import minimize
@@ -94,13 +98,7 @@ except NameError:
     HERE = os.getcwd()
 ZENODO_URL = "https://zenodo.org/records/16284118/files/Rotmod_LTG.zip"
 PI = math.pi
-PHI = (1.0 + math.sqrt(5.0)) / 2.0
-C_SI = 299792458.0
 KPC_M = 3.08567758e19
-PC_M = 3.08567758e16
-MSUN = 1.98847e30
-GYR_S = 365.25 * 86400.0 * 1e9
-G_SI = 6.67430e-11
 G_PC = 4.3009e-3
 G_KPC = 4.3009e-6
 UPS_BULGE = 0.70
@@ -110,59 +108,6 @@ TILT_P1 = 0.210
 TILT_P2 = -0.978
 TILT_U0 = 0.832
 AT_LAW = 0.66
-
-
-def frozen_consts():
-    """Theory constants, recomputed live, exactly as sparc_baseline.py."""
-    roots = []
-    for i, j in combinations(range(8), 2):
-        for si in (-1.0, 1.0):
-            for sj in (-1.0, 1.0):
-                x = [0.0] * 8
-                x[i] = si
-                x[j] = sj
-                roots.append(tuple(x))
-    for bits in range(1 << 8):
-        if bits.bit_count() % 2 == 0:
-            roots.append(tuple(0.5 if ((bits >> i) & 1) == 0 else -0.5
-                               for i in range(8)))
-    d = math.sqrt(2.0 + PHI)
-    proj = [((x[0] + PHI * x[4]) / d, (x[1] + PHI * x[5]) / d,
-             (x[2] + PHI * x[6]) / d) for x in roots]
-    uniq = list({tuple(round(v, 12) for v in p) for p in proj})
-    nonzero = [p for p in uniq
-               if math.sqrt(sum(v * v for v in p)) > 1e-10]
-    radii = sorted(math.sqrt(sum(v * v for v in p)) for p in nonzero)
-    shells = []
-    for r in radii:
-        if not shells or abs(r - shells[-1][0]) > 1e-10:
-            shells.append([r, 1])
-        else:
-            shells[-1][1] += 1
-    ms2 = 5.0 - 2.0 * math.sqrt(5.0)
-    raw_S2 = sum(r * r * n for r, n in shells)
-    raw_S4 = sum((r * r) ** 2 * n for r, n in shells)
-    S2, S4 = raw_S2 * ms2, raw_S4 * ms2 ** 2
-    eta0 = S2 * S2 / ((len(nonzero) + 0.5) * S4)
-    mu_cyc = 21.0
-    t_age = 13.8 * GYR_S
-    H0_si = ((mu_cyc - 1.0) / mu_cyc) / t_age
-    H0_loc_si = H0_si * (1.0 + PHI ** -5)
-    a0 = C_SI * H0_si / (2.0 * PI)
-    a0_local = C_SI * H0_loc_si / (2.0 * PI)
-    a_base_si = a0_local * 2.0 / math.sqrt(3.0)
-    a_base = a_base_si * KPC_M / 1e6
-    Z_lat = 12.0
-    Sigma_si = (a_base_si / (2.0 * PI * G_SI)) * (Z_lat / (mu_cyc + Z_lat))
-    Sigma_char = Sigma_si * PC_M ** 2 / MSUN
-    H0_std = 67.4 * 1000.0 / (3.08567758e22)
-    rho_crit = 3.0 * H0_std ** 2 / (8.0 * PI * G_SI)
-    rho_crit_gal = rho_crit * KPC_M ** 3 / MSUN
-    return {"eta0": eta0, "beta": eta0, "H0_si": H0_si,
-            "H0_loc_si": H0_loc_si, "a0": a0, "a0_local": a0_local,
-            "a_base": a_base, "Sigma_char": Sigma_char,
-            "rho_crit_gal": rho_crit_gal,
-            "n_proj_nonzero": len(nonzero), "n_shells": len(shells)}
 
 
 def load_sparc(data_dir, verbose=True):
@@ -843,7 +788,10 @@ def main():
     print("             metric (mean |resid| %); frozen models fit")
     print("             nothing")
     print()
-    C = frozen_consts()
+    # Galaxy-only: the two live frozen_consts() outputs as literals
+    # (recomputed from frozen_consts() 2026-11-19; see header).
+    C = {"rho_crit_gal": 126.07441634091694,
+         "a0_local": 1.1375295473059159e-10}
     galaxies = load_sparc(os.path.join(HERE, "sparc_data"), verbose=True)
     names = sorted(galaxies)
     print(f"Loaded {len(names)} galaxies.")
